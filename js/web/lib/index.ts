@@ -3,8 +3,12 @@
 
 export * from 'onnxruntime-common';
 import {registerBackend} from 'onnxruntime-common';
-import {onnxjsBackend} from './backend-onnxjs';
+// import { onnxjsBackend } from './backend-onnxjs';
 import {wasmBackend} from './backend-wasm';
 
-registerBackend('webgl', onnxjsBackend, -1);
-registerBackend('wasm', wasmBackend, 0);
+// if (!BUILD_DEFS.DISABLE_WEBGL) {
+//   registerBackend('webgl', onnxjsBackend, -1);
+// }
+if (!BUILD_DEFS.DISABLE_WASM) {
+  registerBackend('wasm', wasmBackend, 0);
+}
