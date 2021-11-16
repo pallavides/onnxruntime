@@ -102,6 +102,8 @@ class DataTypeImpl {
    */
   virtual const ONNX_NAMESPACE::TypeProto* GetTypeProto() const = 0;
 
+  // TODO: Could we make these non-virtual and have an enum member that says what the type is and is set by 
+  // the derived class?
   virtual bool IsTensorType() const {
     return false;
   }
@@ -668,6 +670,10 @@ class OptionalType :
 #if !defined(DISABLE_OPTIONAL_TYPE)
     public OptionalTypeBase
 #else
+    // use the stub DisabledTypeBase to minimize binary size cost. we need the types to be registered so they
+    // can be used in the kernel registration constraint lists so that the kernel hashes are stable, but don't
+    // need them to be usable beyond that. as such, just the call to SetOptionalType to create the TypeProto is
+    // required.
     public DisabledTypeBase
 #endif
 {
@@ -698,18 +704,6 @@ class OptionalType :
     data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
   }
 };
-
-// template <typename T, typename elemT>
-//class DisabledType : public DisabledTypeBase {
-// public:
-//  static MLDataType Type();
-//
-// private:
-//  DisabledType(std::function<void(ONNX_NAMESPACE::TypeProto&)> type_setter) {
-//    // data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
-//    type_setter(MutableTypeProto());
-//  }
-//};
 
 /**
   * \brief Provide a specialization for your C++ Non-tensor type
