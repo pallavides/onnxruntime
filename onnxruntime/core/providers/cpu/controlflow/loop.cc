@@ -123,6 +123,7 @@ ONNX_CPU_OPERATOR_VERSIONED_KERNEL(Loop,
                                        .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorTypes()),
                                    Loop);
 
+#if !defined(DISABLE_OPTIONAL_TYPE)
 ONNX_CPU_OPERATOR_KERNEL(Loop,
                          16,
                          KernelDefBuilder()
@@ -130,6 +131,17 @@ ONNX_CPU_OPERATOR_KERNEL(Loop,
                              .TypeConstraint("B", DataTypeImpl::GetTensorType<bool>())
                              .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorAndOptionalTypes()),
                          Loop);
+#else
+ONNX_CPU_OPERATOR_KERNEL(Loop,
+                         16,
+                         KernelDefBuilder()
+                             .TypeConstraint("I", DataTypeImpl::GetTensorType<int64_t>())
+                             .TypeConstraint("B", DataTypeImpl::GetTensorType<bool>())
+                             .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorTypes()),
+                         Loop);
+
+#endif
+
 Loop::Info::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in)
     : subgraph(subgraph_in) {
   num_loop_carried_vars = static_cast<int>(node.InputDefs().size()) - 2;  // skip 'M' and 'cond'
@@ -509,6 +521,7 @@ Status LoopImpl::Execute(const FeedsFetchesManager& ffm) {
   // as we need the final shape.
   auto copy_mlvalue_to_output = [this](OrtValue& input, int output_idx,
                                        int64_t iter_num_value, const TypeProto& tp) {
+#if !defined(DISABLE_OPTIONAL_TYPE)
     // Only Optional type can be None (i.e.) not have data
     if (tp.has_optional_type() && !input.IsAllocated()) {
       // We can't rely on the input OrtValue containing type information
@@ -519,6 +532,10 @@ Status LoopImpl::Execute(const FeedsFetchesManager& ffm) {
                                                                  static_cast<OpKernelContext*>(&context_),
                                                                  output_idx));
     } else if (input.IsTensor()) {
+#else
+    ORT_UNUSED_PARAMETER(tp);
+    if (input.IsTensor()) {
+#endif
       const auto& input_tensor = input.Get<Tensor>();
       Tensor* output = context_.Output(output_idx, input_tensor.Shape());
       // Safely use the IDataTransfer abstraction as we only allow using
@@ -556,6 +573,7 @@ Status LoopImpl::Execute(const FeedsFetchesManager& ffm) {
         output->SetElements(std::move(tensors));
       }
     }
+
     return Status::OK();
   };
 
