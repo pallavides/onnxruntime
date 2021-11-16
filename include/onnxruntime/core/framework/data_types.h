@@ -79,6 +79,22 @@ using CreateFunc = void* (*)();
  */
 class DataTypeImpl {
  public:
+  enum GeneralType {
+    kInvalid = 0,
+    kNonTensor = 1 << 1,
+    kTensor = 1 << 2,
+    kTensorSequence = 1 << 3,
+    kSparseTensor = 1 << 4,
+    kOptional = 1 << 5
+  };
+
+  GeneralType type_;
+  size_t size_;
+
+ protected:
+  DataTypeImpl(GeneralType type, size_t size) : type_{type}, size_{size} {}
+
+ public:
   virtual ~DataTypeImpl() = default;
 
   /**
@@ -90,7 +106,7 @@ class DataTypeImpl {
    */
   virtual bool IsCompatible(const ONNX_NAMESPACE::TypeProto& type_proto) const = 0;
 
-  virtual size_t Size() const = 0;
+  size_t Size() const { return size_; }
 
   virtual DeleteFunc GetDeleteFunc() const = 0;
 
@@ -102,22 +118,22 @@ class DataTypeImpl {
    */
   virtual const ONNX_NAMESPACE::TypeProto* GetTypeProto() const = 0;
 
-  // TODO: Could we make these non-virtual and have an enum member that says what the type is and is set by 
+  // TODO: Could we make these non-virtual and have an enum member that says what the type is and is set by
   // the derived class?
-  virtual bool IsTensorType() const {
-    return false;
+  bool IsTensorType() const {
+    return type_ & GeneralType::kTensor;
   }
 
-  virtual bool IsTensorSequenceType() const {
-    return false;
+  bool IsTensorSequenceType() const {
+    return type_ & GeneralType::kTensorSequence;
   }
 
-  virtual bool IsSparseTensorType() const {
-    return false;
+  bool IsSparseTensorType() const {
+    return type_ & GeneralType::kSparseTensor;
   }
 
-  virtual bool IsOptionalType() const {
-    return false;
+  bool IsOptionalType() const {
+    return type_ & GeneralType::kOptional;
   }
 
   // Returns this if this is of tensor-type and null otherwise
@@ -421,6 +437,7 @@ struct SetOptionalType {
       MLDataType dt = DataTypeImpl::GetSequenceTensorType<elemT>();
       elem_proto = dt->GetTypeProto();
     } else {
+      // TODO: Move out of templatized code
       // Will not reach here
       ORT_ENFORCE(false, "Unsupported type for optional type");
     }
@@ -452,15 +469,9 @@ class TensorTypeBase : public DataTypeImpl {
   /// where TypeProto was created ad-hoc and not queried from MLDataType
   bool IsCompatible(const ONNX_NAMESPACE::TypeProto& type_proto) const override;
 
-  bool IsTensorType() const override {
-    return true;
-  }
-
   const TensorTypeBase* AsTensorType() const override {
     return this;
   }
-
-  size_t Size() const override;
 
   DeleteFunc GetDeleteFunc() const override;
 
@@ -529,15 +540,10 @@ class DisabledTypeBase : public DataTypeImpl {
     ORT_THROW("Type is disabled in this build.");
   }
 
-  size_t Size() const override {
-    ORT_THROW("Type is disabled in this build.");
-  }
-
   DeleteFunc GetDeleteFunc() const override {
     ORT_THROW("Type is disabled in this build.");
   }
 
-  // this must work
   const ONNX_NAMESPACE::TypeProto* GetTypeProto() const override;
 
   ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(DisabledTypeBase);
@@ -545,7 +551,7 @@ class DisabledTypeBase : public DataTypeImpl {
  protected:
   ONNX_NAMESPACE::TypeProto& MutableTypeProto();
 
-  DisabledTypeBase();
+  DisabledTypeBase(DataTypeImpl::GeneralType type, size_t size);
   ~DisabledTypeBase() override;
 
  private:
@@ -560,17 +566,11 @@ class SparseTensorTypeBase : public DataTypeImpl {
  public:
   static MLDataType Type();
 
-  bool IsSparseTensorType() const override {
-    return true;
-  }
-
   const SparseTensorTypeBase* AsSparseTensorType() const override {
     return this;
   }
 
   bool IsCompatible(const ONNX_NAMESPACE::TypeProto& type_proto) const override;
-
-  size_t Size() const override;
 
   DeleteFunc GetDeleteFunc() const override;
 
@@ -666,15 +666,14 @@ class OptionalTypeBase : public DataTypeImpl {
 #endif
 
 template <typename T, typename elemT>
-class OptionalType :
 #if !defined(DISABLE_OPTIONAL_TYPE)
-    public OptionalTypeBase
+class OptionalType : public OptionalTypeBase
 #else
-    // use the stub DisabledTypeBase to minimize binary size cost. we need the types to be registered so they
-    // can be used in the kernel registration constraint lists so that the kernel hashes are stable, but don't
-    // need them to be usable beyond that. as such, just the call to SetOptionalType to create the TypeProto is
-    // required.
-    public DisabledTypeBase
+// use the stub DisabledTypeBase to minimize binary size cost. we need the types to be registered so they
+// can be used in the kernel registration constraint lists so that the kernel hashes are stable, but don't
+// need them to be usable beyond that. as such, just the call to SetOptionalType to create the TypeProto is
+// required.
+class OptionalType : public DisabledTypeBase
 #endif
 {
  public:
@@ -700,9 +699,15 @@ class OptionalType :
 #endif
 
  private:
+#if !defined(DISABLE_OPTIONAL_TYPE)
   OptionalType() {
     data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
   }
+#else
+  OptionalType() : DisabledTypeBase{DataTypeImpl::GeneralType::kOptional, 0} {
+    data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
+  }
+#endif
 };
 
 /**
@@ -729,8 +734,6 @@ struct NonTensorTypeConverter {
  */
 class NonTensorTypeBase : public DataTypeImpl {
  public:
-  size_t Size() const override = 0;
-
   DeleteFunc GetDeleteFunc() const override = 0;
 
   virtual CreateFunc GetCreateFunc() const = 0;
@@ -767,7 +770,7 @@ class NonTensorTypeBase : public DataTypeImpl {
   NonTensorTypeBase& operator=(const NonTensorTypeBase&) = delete;
 
  protected:
-  NonTensorTypeBase();
+  NonTensorTypeBase(size_t size);
   ~NonTensorTypeBase() override;
 
   ONNX_NAMESPACE::TypeProto& MutableTypeProto();
@@ -792,10 +795,6 @@ class NonTensorType : public NonTensorTypeBase {
   }
 
  public:
-  size_t Size() const override {
-    return sizeof(T);
-  }
-
   DeleteFunc GetDeleteFunc() const override {
     return &Delete;
   }
@@ -805,7 +804,7 @@ class NonTensorType : public NonTensorTypeBase {
   }
 
  protected:
-  NonTensorType() = default;
+  NonTensorType() : NonTensorTypeBase(sizeof(T)) {}
 };
 
 #if !defined(DISABLE_ML_OPS)
@@ -874,10 +873,6 @@ class SequenceTensorTypeBase : public DataTypeImpl {
 
   bool IsCompatible(const ONNX_NAMESPACE::TypeProto& type_proto) const override;
 
-  bool IsTensorSequenceType() const override {
-    return true;
-  }
-
   const SequenceTensorTypeBase* AsSequenceTensorType() const override {
     return this;
   }
@@ -886,8 +881,6 @@ class SequenceTensorTypeBase : public DataTypeImpl {
     // should never reach here.
     ORT_NOT_IMPLEMENTED(__FUNCTION__, " is not implemented");
   }
-
-  size_t Size() const override;
 
   DeleteFunc GetDeleteFunc() const override;
 
@@ -999,14 +992,14 @@ class PrimitiveDataTypeBase : public DataTypeImpl {
   }
 
  protected:
-  PrimitiveDataTypeBase() = default;
+  PrimitiveDataTypeBase(size_t size) : DataTypeImpl{GeneralType::kNonTensor, size} {}
 
   void SetDataType(int32_t data_type) {
     data_type_ = data_type;
   }
 
  private:
-  int32_t data_type_;
+  int32_t data_type_{0};
 };
 
 /**
@@ -1027,17 +1020,13 @@ class PrimitiveDataType : public PrimitiveDataTypeBase {
  public:
   static MLDataType Type();
 
-  size_t Size() const override {
-    return sizeof(T);
-  }
-
   DeleteFunc GetDeleteFunc() const override {
     return &Delete;
   }
 
  private:
-  PrimitiveDataType() {
-    this->SetDataType(data_types_internal::TensorElementTypeSetter<T>::GetElementType());
+  PrimitiveDataType() : PrimitiveDataTypeBase{sizeof(T)} {
+    SetDataType(data_types_internal::TensorElementTypeSetter<T>::GetElementType());
   }
 };
 
