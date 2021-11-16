@@ -155,11 +155,6 @@ TEST(KernelDefHashTest, DISABLED_PrintCpuKernelDefHashes) {
   std::cout << DumpKernelDefHashes(cpu_kernel_def_hashes) << "\n";
 }
 
-// TODO: Enable this test when optional type isdisabled when we have a way to conditionally
-// change the expected hash list (right now they are read from a file as shown below).
-// The actual hashes of some operators change when the optional type is disabled.
-#if !defined(DISABLE_OPTIONAL_TYPE)
-
 TEST(KernelDefHashTest, ExpectedCpuKernelDefHashes) {
   const bool is_strict = ParseEnvironmentVariableWithDefault<bool>(kStrictKernelDefHashCheckEnvVar, false);
 
@@ -190,8 +185,6 @@ TEST(KernelDefHashTest, ExpectedCpuKernelDefHashes) {
 
   CheckKernelDefHashes(cpu_kernel_def_hashes, expected_cpu_kernel_def_hashes, is_strict);
 }
-
-#endif
 
 }  // namespace test
 }  // namespace onnxruntime

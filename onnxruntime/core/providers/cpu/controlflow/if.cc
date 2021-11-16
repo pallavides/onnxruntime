@@ -96,22 +96,22 @@ ONNX_CPU_OPERATOR_VERSIONED_KERNEL(If,
                                    If);
 
 // optional type is supported starting opset-16
-#if !defined(DISABLE_OPTIONAL_TYPE)
+// #if !defined(DISABLE_OPTIONAL_TYPE)
 ONNX_CPU_OPERATOR_KERNEL(If,
                          16,
                          KernelDefBuilder()
                              .TypeConstraint("B", DataTypeImpl::GetTensorType<bool>())
                              .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorAndOptionalTypes()),
                          If);
-#else
-ONNX_CPU_OPERATOR_KERNEL(If,
-                         16,
-                         KernelDefBuilder()
-                             .TypeConstraint("B", DataTypeImpl::GetTensorType<bool>())
-                             .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorTypes()),
-                         If);
-
-#endif
+//#else
+//ONNX_CPU_OPERATOR_KERNEL(If,
+//                         16,
+//                         KernelDefBuilder()
+//                             .TypeConstraint("B", DataTypeImpl::GetTensorType<bool>())
+//                             .TypeConstraint("V", DataTypeImpl::AllTensorAndSequenceTensorTypes()),
+//                         If);
+//
+//#endif
 
 If::Info::Info(const onnxruntime::Node& node, const GraphViewer& subgraph_in) : subgraph(subgraph_in) {
   num_implicit_inputs = static_cast<int>(node.ImplicitInputDefs().size());
