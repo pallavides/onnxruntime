@@ -406,17 +406,17 @@ struct SetMapTypes {
 void CopyMutableSeqElement(const ONNX_NAMESPACE::TypeProto&,
                            ONNX_NAMESPACE::TypeProto&);
 
-template <typename T>
-struct SetSequenceType {
-  static void Set(ONNX_NAMESPACE::TypeProto& proto) {
+// helper to create TypeProto with minimal binary size impact
+struct SequenceTypeHelper {
+  template <typename T>
+  static const onnx::TypeProto* GetElemType() {
     MLDataType dt = GetMLDataType<T, IsTensorContainedType<T>::value>::Get();
     const auto* elem_proto = dt->GetTypeProto();
-#ifdef ORT_NO_RTTI
+    return elem_proto;  // check for nullptr is in Set
+  }
+
+  static void Set(const onnx::TypeProto* elem_proto, ONNX_NAMESPACE::TypeProto& proto) {
     ORT_ENFORCE(elem_proto != nullptr, "expected a registered ONNX type");
-#else
-    ORT_ENFORCE(elem_proto != nullptr, typeid(T).name(),
-                " expected to be a registered ONNX type");
-#endif
     CopyMutableSeqElement(*elem_proto, proto);
   }
 };
@@ -426,9 +426,10 @@ struct SetSequenceType {
 void CopyMutableOptionalElement(const ONNX_NAMESPACE::TypeProto&,
                                 ONNX_NAMESPACE::TypeProto&);
 
-template <typename T, typename elemT>
-struct SetOptionalType {
-  static void Set(ONNX_NAMESPACE::TypeProto& proto) {
+// helper to create TypeProto with minimal binary size impact 
+struct OptionalTypeHelper {
+  template <typename T, typename elemT>
+  static const onnx::TypeProto* GetElemType() {
     const onnx::TypeProto* elem_proto = nullptr;
     if (std::is_same<T, Tensor>::value) {
       MLDataType dt = DataTypeImpl::GetTensorType<elemT>();
@@ -436,18 +437,13 @@ struct SetOptionalType {
     } else if (std::is_same<T, TensorSeq>::value) {
       MLDataType dt = DataTypeImpl::GetSequenceTensorType<elemT>();
       elem_proto = dt->GetTypeProto();
-    } else {
-      // TODO: Move out of templatized code
-      // Will not reach here
-      ORT_ENFORCE(false, "Unsupported type for optional type");
     }
 
-#ifdef ORT_NO_RTTI
-    ORT_ENFORCE(elem_proto != nullptr, "expected a registered ORT type");
-#else
-    ORT_ENFORCE(elem_proto != nullptr, typeid(T).name(),
-                " expected to be a registered ORT type");
-#endif
+    return elem_proto; // check for nullptr is in Set
+  }
+
+  static void Set(const onnx::TypeProto* elem_proto, ONNX_NAMESPACE::TypeProto& proto) {
+    ORT_ENFORCE(elem_proto != nullptr, " unregistered or unsupported ORT type for Optional");
     CopyMutableOptionalElement(*elem_proto, proto);
   }
 };
@@ -482,8 +478,7 @@ class TensorTypeBase : public DataTypeImpl {
     ORT_NOT_IMPLEMENTED(__FUNCTION__, " is not implemented");
   }
 
-  TensorTypeBase(const TensorTypeBase&) = delete;
-  TensorTypeBase& operator=(const TensorTypeBase&) = delete;
+  ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(TensorTypeBase);
 
  protected:
   ONNX_NAMESPACE::TypeProto& MutableTypeProto();
@@ -537,11 +532,13 @@ class DisabledTypeBase : public DataTypeImpl {
   static MLDataType Type();
 
   bool IsCompatible(const ONNX_NAMESPACE::TypeProto&) const override {
-    ORT_THROW("Type is disabled in this build.");
+    // ORT_THROW("Type is disabled in this build.");
+    return false;
   }
 
   DeleteFunc GetDeleteFunc() const override {
-    ORT_THROW("Type is disabled in this build.");
+    // ORT_THROW("Type is disabled in this build.");
+    return nullptr;
   }
 
   const ONNX_NAMESPACE::TypeProto* GetTypeProto() const override;
@@ -581,8 +578,7 @@ class SparseTensorTypeBase : public DataTypeImpl {
     ORT_NOT_IMPLEMENTED(__FUNCTION__, " is not implemented");
   }
 
-  SparseTensorTypeBase(const SparseTensorTypeBase&) = delete;
-  SparseTensorTypeBase& operator=(const SparseTensorTypeBase&) = delete;
+  ORT_DISALLOW_COPY_ASSIGNMENT_AND_MOVE(SparseTensorTypeBase);
 
  protected:
   ONNX_NAMESPACE::TypeProto& MutableTypeProto();
@@ -632,11 +628,6 @@ class OptionalTypeBase : public DataTypeImpl {
   }
 
   bool IsCompatible(const ONNX_NAMESPACE::TypeProto& type_proto) const override;
-
-  size_t Size() const override {
-    // should never reach here.
-    ORT_NOT_IMPLEMENTED(__FUNCTION__, " is not implemented");
-  }
 
   DeleteFunc GetDeleteFunc() const override {
     // should never reach here.
@@ -700,14 +691,15 @@ class OptionalType : public DisabledTypeBase
 
  private:
 #if !defined(DISABLE_OPTIONAL_TYPE)
-  OptionalType() {
-    data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
-  }
+  OptionalType()
 #else
-  OptionalType() : DisabledTypeBase{DataTypeImpl::GeneralType::kOptional, 0} {
-    data_types_internal::SetOptionalType<T, elemT>::Set(MutableTypeProto());
-  }
+  OptionalType() : DisabledTypeBase { DataTypeImpl::GeneralType::kOptional, 0 }
 #endif
+  {
+    data_types_internal::OptionalTypeHelper::Set(
+        data_types_internal::OptionalTypeHelper::GetElemType<T, elemT>(),
+        MutableTypeProto());
+  }
 };
 
 /**
@@ -858,7 +850,9 @@ class SequenceType : public NonTensorType<CPPType> {
 
  private:
   SequenceType() {
-    data_types_internal::SetSequenceType<typename CPPType::value_type>::Set(this->MutableTypeProto());
+    data_types_internal::SequenceTypeHelper::Set(
+        data_types_internal::SequenceTypeHelper::GetElemType<typename CPPType::value_type>(),
+        MutableTypeProto());
   }
 };
 
@@ -925,7 +919,9 @@ class SequenceTensorType : public SequenceTensorTypeBase {
 
  private:
   SequenceTensorType() {
-    data_types_internal::SetSequenceType<TensorElemType>::Set(this->MutableTypeProto());
+    data_types_internal::SequenceTypeHelper::Set(
+        data_types_internal::SequenceTypeHelper::GetElemType<TensorElemType>(),
+        MutableTypeProto());
   }
 };
 

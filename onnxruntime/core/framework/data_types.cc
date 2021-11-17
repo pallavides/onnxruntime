@@ -566,7 +566,7 @@ ONNX_NAMESPACE::TypeProto& DisabledTypeBase::MutableTypeProto() {
 }
 
 MLDataType DisabledTypeBase::Type() {
-  static DisabledTypeBase disabled_base{GeneralType::kInvalid, 0}; // TODO: Can we do this or the values need to be valid?
+  static DisabledTypeBase disabled_base{GeneralType::kInvalid, 0}; 
   return &disabled_base;
 }
 
